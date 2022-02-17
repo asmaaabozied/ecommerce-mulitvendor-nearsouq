@@ -1,0 +1,1379 @@
+Index: app/Http/Controllers/api/v1/AuthController.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nnamespace App\\Http\\Controllers\\api\\v1;\r\n\r\nuse App\\Http\\Controllers\\Controller;\r\n\r\nuse Illuminate\\Http\\Request;\r\n\r\nuse Illuminate\\Support\\Facades\\Auth;\r\nuse Illuminate\\Support\\Str;\r\nuse Intervention\\Image\\Facades\\Image;\r\nuse Validator;\r\nuse Carbon\\Carbon;\r\nuse Lang;\r\nuse LaravelLocalization;\r\nuse App\\User;\r\nuse DB;\r\nuse Mail;\r\nuse Modules\\UserManagement\\Entities\\UserMetas;\r\n\r\nuse App\\PasswordReset;\r\n\r\n\r\nclass AuthController extends Controller\r\n{\r\n\r\n\r\n    public function __construct()\r\n    {\r\n        $local=(!empty(Request()->route()))?(Request()->route()->parameters()['locale']): 'en';\r\n        LaravelLocalization::setLocale($local);\r\n    }\r\n\r\n\r\n\r\n\r\n\r\n\r\n    function responseJson($status,$message,$data=null){\r\n\r\n      $response=[\r\n\r\n       'status'=>$status,\r\n\r\n        'message'=>$message,\r\n\r\n       'data'=>$data\r\n\r\n\r\n   ];\r\n\r\n    return response()->json($response);\r\n\r\n\r\n}\r\n\r\n     public function updateprofile(Request $request){\r\n\r\n         $rule=[\r\n             'email'    => 'max:254|email|required',\r\n             'name'    => 'required',\r\n             'phone' =>'required|min:9',\r\n             'address'=>'required',\r\n             'city_id'=>'required',\r\n             'password'=>'required'\r\n         ];\r\n         $customMessages = [\r\n             'required' => __('validation.attributes.required'),\r\n         ];\r\n\r\n         $validator=validator()->make($request->all(),$rule,$customMessages);\r\n\r\n         if($validator->fails()){\r\n\r\n//            return responseJson(1,$validator->errors()->first(),$validator->errors());\r\n             return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);\r\n\r\n         }\r\n\r\n         $user = User::findorfail(Auth::id());\r\n\r\n         if ($request->hasFile('image')) {\r\n             $picture_name = 'uploads'.'/'.time().str_shuffle('abcdef').'.'.$request->file('image')->getClientOriginalExtension();\r\n//            $picture_name = explode(\"'\\'\",$picture_name);\r\n//            unset($picture_name);\r\n             Image::make($request->file('image'))->save(public_path(\"$picture_name\"));\r\n             $request->request->set('image', $picture_name);\r\n             $user->image=$picture_name;\r\n         }//end if\r\n\r\n         $user->name = isset($request->name)?$request->name:$user->name;\r\n         $user->email = isset($request->email)?$request->email:$user->email;\r\n         $user->phone = isset($request->phone)?$request->phone:$user->phone;\r\n         $user->city_id = isset($request->city_id)?$request->city_id:$user->city_id;\r\n         $user->address = isset($request->address)?$request->address:$user->address;\r\n         $user->password = bcrypt($request->password);\r\n         $user->remember_token = Str::random(60);\r\n         $user->save();\r\n         return $this->responseJson(1,__('site.messages.opertaion_success'),$user);\r\n\r\n\r\n\r\n     }\r\n     public function showprofile(){\r\n\r\n        $user=Auth::user();\r\n\r\n         return $this->responseJson(1,__('site.messages.success'),$user);\r\n\r\n\r\n     }\r\n\r\n     public function logout(){\r\n\r\n         $user=Auth::user()->revoke();\r\n\r\n         return $this->responseJson(1,__('site.messages.success'),$user);\r\n\r\n\r\n     }\r\n\r\n\r\n    public function resetpassword(Request $request){\r\n\r\n        $rule=[\r\n            'email'    => 'max:254|email|required',\r\n        ];\r\n\r\n        $customMessages = [\r\n            'required' => __('validation.attributes.required'),\r\n        ];\r\n\r\n        $validator=validator()->make($request->all(),$rule,$customMessages);\r\n\r\n        if($validator->fails()){\r\n\r\n//            return responseJson(1,$validator->errors()->first(),$validator->errors());\r\n            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);\r\n\r\n        }\r\n\r\n        $user = User::where('email',$request->email)->first();\r\n        if ($user){\r\n            $code = rand(111111,999999);\r\n            $update = $user->update(['code' => $code]);\r\n            if ($update)\r\n            {\r\n                // send email\r\n              //  Mail::send('emails.reset', ['code' => $code], function ($mail) use($user) {\r\n                 //   $mail->from('asmaaabozied907@gmail.com', 'تغير كلمه المرور');\r\n\r\n                   // $mail->to($user->email, $user->name)->subject('إعادة تعيين كلمة المرور');\r\n             //   });\r\n\r\n                return $this->responseJson(1,__('site.messages.checkemail'));\r\n            }else{\r\n                return $this->responseJson(0,_('site.messages.error'));\r\n            }\r\n        }else{\r\n            return $this->responseJson(0,__('site.messages.invalidemail'));\r\n        }\r\n\r\n\r\n    }\r\n\r\n    public function changepassword(Request $request){\r\n\r\n        $rule=[\r\n            'code'    => 'required',\r\n\r\n            'password'=>'required',\r\n\r\n            'c_password'=>'required_with:password|same:password',\r\n\r\n        ];\r\n\r\n        $customMessages = [\r\n            'required' => __('validation.attributes.required'),\r\n        ];\r\n\r\n        $validator=validator()->make($request->all(),$rule,$customMessages);\r\n\r\n        if($validator->fails()){\r\n\r\n//            return responseJson(1,$validator->errors()->first(),$validator->errors());\r\n            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);\r\n\r\n        }\r\n\r\n\r\n        $user = User::where('code',$request->code)->where('code','!=',0)->first();\r\n\r\n        if ($user)\r\n        {\r\n            $update = $user->update(['password' => bcrypt($request->password), 'code' => null]);\r\n            if ($update)\r\n            {\r\n\r\n                return $this->responseJson(1,__('site.messages.resetpassword'));\r\n            }else{\r\n                return $this->responseJson(0,__('site.messages.error'));\r\n            }\r\n        }else{\r\n            return $this-> responseJson(0,__('site.messages.user_codeInvalid'));\r\n        }\r\n\r\n\r\n    }\r\n\r\n\r\n\r\n    public function register(Request $request){\r\n\r\n        $rule=[\r\n            'email'    => 'max:254|unique:users|email|required',\r\n            'name'    => 'required',\r\n            'phone' =>'required|min:9',\r\n            'address'=>'required',\r\n            'city_id'=>'required',\r\n            'password'=>'required',\r\n            'c_password'=>'required_with:password|same:password',\r\n        ];\r\n        $customMessages = [\r\n            'required' => __('validation.attributes.required'),\r\n        ];\r\n\r\n        $validator=validator()->make($request->all(),$rule,$customMessages);\r\n\r\n        if($validator->fails()){\r\n\r\n//            return responseJson(1,$validator->errors()->first(),$validator->errors());\r\n            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);\r\n\r\n        }\r\n\r\n\r\n        $user=User::create([\r\n            'name'=>$request->name,\r\n            'email'=>$request->email,\r\n            'phone'=>$request->phone,\r\n            'address'=>$request->address,\r\n            'city_id'=>$request->city_id,\r\n            'password'=>bcrypt($request->password),\r\n            'remember_token'=>Str::random(60)\r\n        ]);\r\n\r\n        $user->save();\r\n\r\n        $token =  $user->createToken('MyApp')->accessToken;\r\n\r\n        return $this->responseJson(1,__('site.messages.opertaion_success'),\r\n\r\n\r\n           ['token'=>$token,'data'=>$user]\r\n\r\n            );\r\n    }\r\n\r\n   public function login(Request $request)\r\n   {\r\n\r\n       $rule = [\r\n           'name' => 'required',\r\n           'password' => 'required',\r\n\r\n\r\n       ];\r\n\r\n       $customMessages = [\r\n           'required' => __('validation.attributes.required'),\r\n       ];\r\n\r\n       $validator = validator()->make($request->all(), $rule, $customMessages);\r\n\r\n       if ($validator->fails()) {\r\n\r\n//            return responseJson(1,$validator->errors()->first(),$validator->errors());\r\n           return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);\r\n\r\n       }\r\n\r\n       $password = $request->password;\r\n       $name = $request->name;\r\n\r\n       if (Auth::attempt(['name' => $name, 'password' => $password])) {\r\n           $user = Auth::user();\r\n           $token = $user->createToken('MyApp')->accessToken;\r\n           return $this->responseJson(1, __('site.messages.opertaion_success'), ['token' => $token, 'user' => $user]\r\n           );\r\n\r\n\r\n       }else{\r\n           return $this->responseJson(0, __('site.messages.user_loginInvalid'));\r\n\r\n       }\r\n\r\n   }\r\n\r\n\r\n\r\n\r\n\r\n    public function createjobs(Request $request){\r\n\r\n         $user=Auth::user()->id();\r\n\r\n         return $user;\r\n\r\n        $rule=[\r\n\r\n            'email'    => 'max:254|unique:jobs|email|required',\r\n\r\n            'phone'    => 'required|min:9',\r\n\r\n            'name'=>'required',\r\n\r\n\r\n            'job'=>'required',\r\n\r\n            'description'=>'required',\r\n\r\n            'user_id'=>'required',\r\n\r\n            'file'=>'required',\r\n\r\n\r\n\r\n        ];\r\n\r\n        $customMessages = [\r\n            'required' => __('validation.attributes.required'),\r\n        ];\r\n\r\n        $validator=validator()->make($request->all(),$rule,$customMessages);\r\n\r\n        if($validator->fails()){\r\n\r\n//            return responseJson(1,$validator->errors()->first(),$validator->errors());\r\n            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);\r\n\r\n        }\r\n\r\n        if($request->file){\r\n\r\n            $filname=$request->file('file')->getFilename();\r\n\r\n            $path=$request->file('file')->move(public_path('/'),$filname);\r\n\r\n            $url=url('/api/v1/ar/createjobs/'.$filname);\r\n\r\n\r\n        }\r\n\r\n       $jobs=Job::create([\r\n\r\n           'name'=>$request->name,\r\n           'phone'=>$request->phone,\r\n           'email'=>$request->email,\r\n           'job'=>$request->job,\r\n           'description'=>$request->description,\r\n           'user_id'=>$request->user_id,\r\n          'file'=>$url,\r\n\r\n       ]);\r\n\r\n\r\n\r\n        return response()->json(['status' => 1,'data'=> $jobs ],'200');\r\n\r\n\r\n\r\n    }\r\n\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/Http/Controllers/api/v1/AuthController.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ app/Http/Controllers/api/v1/AuthController.php	(date 1640632956707)
+@@ -27,150 +27,147 @@
+ 
+     public function __construct()
+     {
+-        $local=(!empty(Request()->route()))?(Request()->route()->parameters()['locale']): 'en';
++        $local = (!empty(Request()->route())) ? (Request()->route()->parameters()['locale']) : 'en';
+         LaravelLocalization::setLocale($local);
+     }
+ 
+ 
+-
+-
+-
+-
+-    function responseJson($status,$message,$data=null){
++    function responseJson($status, $message, $data = null)
++    {
+ 
+-      $response=[
++        $response = [
+ 
+-       'status'=>$status,
++            'status' => $status,
+ 
+-        'message'=>$message,
++            'message' => $message,
+ 
+-       'data'=>$data
++            'data' => $data
+ 
+ 
+-   ];
++        ];
+ 
+-    return response()->json($response);
++        return response()->json($response);
+ 
+ 
+-}
++    }
+ 
+-     public function updateprofile(Request $request){
++    public function updateprofile(Request $request)
++    {
+ 
+-         $rule=[
+-             'email'    => 'max:254|email|required',
+-             'name'    => 'required',
+-             'phone' =>'required|min:9',
+-             'address'=>'required',
+-             'city_id'=>'required',
+-             'password'=>'required'
+-         ];
+-         $customMessages = [
+-             'required' => __('validation.attributes.required'),
+-         ];
++        $rule = [
++            'email' => 'max:254|email|required',
++            'name' => 'required',
++            'phone' => 'required|min:9',
++            'address' => 'required',
++            'password' => 'required'
++        ];
++        $customMessages = [
++            'required' => __('validation.attributes.required'),
++        ];
+ 
+-         $validator=validator()->make($request->all(),$rule,$customMessages);
++        $validator = validator()->make($request->all(), $rule, $customMessages);
+ 
+-         if($validator->fails()){
++        if ($validator->fails()) {
+ 
+-//            return responseJson(1,$validator->errors()->first(),$validator->errors());
+-             return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);
++            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);
+ 
+-         }
++        }
+ 
+-         $user = User::findorfail(Auth::id());
++        $user = User::findorfail(Auth::id());
+ 
+-         if ($request->hasFile('image')) {
+-             $picture_name = 'uploads'.'/'.time().str_shuffle('abcdef').'.'.$request->file('image')->getClientOriginalExtension();
++        if ($request->hasFile('image')) {
++            $picture_name = 'uploads' . '/' . time() . str_shuffle('abcdef') . '.' . $request->file('image')->getClientOriginalExtension();
+ //            $picture_name = explode("'\'",$picture_name);
+ //            unset($picture_name);
+-             Image::make($request->file('image'))->save(public_path("$picture_name"));
+-             $request->request->set('image', $picture_name);
+-             $user->image=$picture_name;
+-         }//end if
++            Image::make($request->file('image'))->save(public_path("$picture_name"));
++            $request->request->set('image', $picture_name);
++            $user->image = $picture_name;
++        }//end if
+ 
+-         $user->name = isset($request->name)?$request->name:$user->name;
+-         $user->email = isset($request->email)?$request->email:$user->email;
+-         $user->phone = isset($request->phone)?$request->phone:$user->phone;
+-         $user->city_id = isset($request->city_id)?$request->city_id:$user->city_id;
+-         $user->address = isset($request->address)?$request->address:$user->address;
+-         $user->password = bcrypt($request->password);
+-         $user->remember_token = Str::random(60);
+-         $user->save();
+-         return $this->responseJson(1,__('site.messages.opertaion_success'),$user);
++        $user->name = isset($request->name) ? $request->name : $user->name;
++        $user->email = isset($request->email) ? $request->email : $user->email;
++        $user->phone = isset($request->phone) ? $request->phone : $user->phone;
++        $user->address = isset($request->address) ? $request->address : $user->address;
++        $user->password = bcrypt($request->password);
++
++        $user->save();
++        return $this->responseJson(1, __('site.messages.opertaion_success'), $user);
+ 
+ 
+-
+-     }
+-     public function showprofile(){
++    }
++
++    public function showprofile()
++    {
+ 
+-        $user=Auth::user();
++        $user = Auth::user();
+ 
+-         return $this->responseJson(1,__('site.messages.success'),$user);
++        return $this->responseJson(1, __('site.messages.success'), $user);
+ 
+ 
+-     }
++    }
+ 
+-     public function logout(){
++    public function logout()
++    {
++        $user = auth()->user()->token()->revoke();
+ 
+-         $user=Auth::user()->revoke();
+ 
+-         return $this->responseJson(1,__('site.messages.success'),$user);
++        return $this->responseJson(1, __('site.messages.success'), $user);
+ 
+ 
+-     }
++    }
+ 
+ 
+-    public function resetpassword(Request $request){
++    public function resetpassword(Request $request)
++    {
+ 
+-        $rule=[
+-            'email'    => 'max:254|email|required',
++        $rule = [
++            'email' => 'max:254|email|required',
+         ];
+ 
+         $customMessages = [
+             'required' => __('validation.attributes.required'),
+         ];
+ 
+-        $validator=validator()->make($request->all(),$rule,$customMessages);
++        $validator = validator()->make($request->all(), $rule, $customMessages);
+ 
+-        if($validator->fails()){
++        if ($validator->fails()) {
+ 
+-//            return responseJson(1,$validator->errors()->first(),$validator->errors());
+-            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);
++            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);
+ 
+         }
+ 
+-        $user = User::where('email',$request->email)->first();
+-        if ($user){
+-            $code = rand(111111,999999);
++        $user = User::where('email', $request->email)->first();
++        if ($user) {
++            $code = rand(111111, 999999);
+             $update = $user->update(['code' => $code]);
+-            if ($update)
+-            {
++            if ($update) {
+                 // send email
+-              //  Mail::send('emails.reset', ['code' => $code], function ($mail) use($user) {
+-                 //   $mail->from('asmaaabozied907@gmail.com', 'تغير كلمه المرور');
++                //  Mail::send('emails.reset', ['code' => $code], function ($mail) use($user) {
++                //   $mail->from('asmaaabozied907@gmail.com', 'تغير كلمه المرور');
+ 
+-                   // $mail->to($user->email, $user->name)->subject('إعادة تعيين كلمة المرور');
+-             //   });
++                // $mail->to($user->email, $user->name)->subject('إعادة تعيين كلمة المرور');
++                //   });
+ 
+-                return $this->responseJson(1,__('site.messages.checkemail'));
+-            }else{
+-                return $this->responseJson(0,_('site.messages.error'));
++                return $this->responseJson(1, __('site.messages.checkemail'));
++            } else {
++                return $this->responseJson(0, _('site.messages.error'));
+             }
+-        }else{
+-            return $this->responseJson(0,__('site.messages.invalidemail'));
++        } else {
++            return $this->responseJson(0, __('site.messages.invalidemail'));
+         }
+ 
+ 
+     }
+ 
+-    public function changepassword(Request $request){
++    public function changepassword(Request $request)
++    {
+ 
+-        $rule=[
+-            'code'    => 'required',
++        $rule = [
++            'code' => 'required',
+ 
+-            'password'=>'required',
++            'password' => 'required',
+ 
+-            'c_password'=>'required_with:password|same:password',
++            'c_password' => 'required_with:password|same:password',
+ 
+         ];
+ 
+@@ -178,197 +175,118 @@
+             'required' => __('validation.attributes.required'),
+         ];
+ 
+-        $validator=validator()->make($request->all(),$rule,$customMessages);
++        $validator = validator()->make($request->all(), $rule, $customMessages);
+ 
+-        if($validator->fails()){
++        if ($validator->fails()) {
+ 
+ //            return responseJson(1,$validator->errors()->first(),$validator->errors());
+-            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);
++            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);
+ 
+         }
+ 
+ 
+-        $user = User::where('code',$request->code)->where('code','!=',0)->first();
++        $user = User::where('code', $request->code)->where('code', '!=', 0)->first();
+ 
+-        if ($user)
+-        {
++        if ($user) {
+             $update = $user->update(['password' => bcrypt($request->password), 'code' => null]);
+-            if ($update)
+-            {
++            if ($update) {
+ 
+-                return $this->responseJson(1,__('site.messages.resetpassword'));
+-            }else{
+-                return $this->responseJson(0,__('site.messages.error'));
++                return $this->responseJson(1, __('site.messages.resetpassword'));
++            } else {
++                return $this->responseJson(0, __('site.messages.error'));
+             }
+-        }else{
+-            return $this-> responseJson(0,__('site.messages.user_codeInvalid'));
++        } else {
++            return $this->responseJson(0, __('site.messages.user_codeInvalid'));
+         }
+ 
+ 
+     }
+ 
+ 
+-
+-    public function register(Request $request){
++    public function register(Request $request)
++    {
+ 
+-        $rule=[
+-            'email'    => 'max:254|unique:users|email|required',
+-            'name'    => 'required',
+-            'phone' =>'required|min:9',
+-            'address'=>'required',
+-            'city_id'=>'required',
+-            'password'=>'required',
+-            'c_password'=>'required_with:password|same:password',
++        $rule = [
++            'email' => 'max:254|unique:users|email|required',
++            'name' => 'required',
++            'phone' => 'required|min:9',
++            'address' => 'required',
++            'password' => 'required',
++            'c_password' => 'required_with:password|same:password',
+         ];
+         $customMessages = [
+             'required' => __('validation.attributes.required'),
+         ];
+ 
+-        $validator=validator()->make($request->all(),$rule,$customMessages);
++        $validator = validator()->make($request->all(), $rule, $customMessages);
+ 
+-        if($validator->fails()){
++        if ($validator->fails()) {
+ 
+-//            return responseJson(1,$validator->errors()->first(),$validator->errors());
+-            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);
++            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);
+ 
+         }
+ 
+ 
+-        $user=User::create([
+-            'name'=>$request->name,
+-            'email'=>$request->email,
+-            'phone'=>$request->phone,
+-            'address'=>$request->address,
+-            'city_id'=>$request->city_id,
+-            'password'=>bcrypt($request->password),
+-            'remember_token'=>Str::random(60)
++        $user = User::create([
++            'name' => $request->name,
++            'email' => $request->email,
++            'phone' => $request->phone,
++            'address' => $request->address,
++            'password' => bcrypt($request->password),
+         ]);
+ 
+         $user->save();
+ 
+-        $token =  $user->createToken('MyApp')->accessToken;
++        $token = $user->createToken('MyApp')->accessToken;
+ 
+-        return $this->responseJson(1,__('site.messages.opertaion_success'),
++        return $this->responseJson(1, __('site.messages.opertaion_success'),
+ 
+ 
+-           ['token'=>$token,'data'=>$user]
++            ['token' => $token, 'data' => $user]
+ 
+-            );
++        );
+     }
+ 
+-   public function login(Request $request)
+-   {
++    public function login(Request $request)
++    {
+ 
+-       $rule = [
+-           'name' => 'required',
+-           'password' => 'required',
++        $rule = [
++            'email' => 'required',
++            'password' => 'required',
+ 
+ 
+-       ];
++        ];
+ 
+-       $customMessages = [
+-           'required' => __('validation.attributes.required'),
+-       ];
++        $customMessages = [
++            'required' => __('validation.attributes.required'),
++        ];
+ 
+-       $validator = validator()->make($request->all(), $rule, $customMessages);
++        $validator = validator()->make($request->all(), $rule, $customMessages);
+ 
+-       if ($validator->fails()) {
++        if ($validator->fails()) {
+ 
+-//            return responseJson(1,$validator->errors()->first(),$validator->errors());
+-           return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);
++            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())], 422);
+ 
+-       }
++        }
+ 
+-       $password = $request->password;
+-       $name = $request->name;
++        $password = $request->password;
++        $email = $request->email;
+ 
+-       if (Auth::attempt(['name' => $name, 'password' => $password])) {
+-           $user = Auth::user();
+-           $token = $user->createToken('MyApp')->accessToken;
+-           return $this->responseJson(1, __('site.messages.opertaion_success'), ['token' => $token, 'user' => $user]
+-           );
++        if (Auth::attempt(['email' => $email, 'password' => $password])) {
++            $user = Auth::user();
++            $token = $user->createToken('MyApp')->accessToken;
++            return $this->responseJson(1, __('site.messages.opertaion_success'), ['token' => $token, 'user' => $user]
++            );
+ 
+ 
+-       }else{
+-           return $this->responseJson(0, __('site.messages.user_loginInvalid'));
++        } else {
++            return $this->responseJson(0, __('site.messages.user_loginInvalid'));
+ 
+-       }
++        }
+ 
+-   }
++    }
+ 
+ 
+ 
+ 
+-
+-    public function createjobs(Request $request){
+-
+-         $user=Auth::user()->id();
+-
+-         return $user;
+-
+-        $rule=[
+-
+-            'email'    => 'max:254|unique:jobs|email|required',
+-
+-            'phone'    => 'required|min:9',
+-
+-            'name'=>'required',
+-
+-
+-            'job'=>'required',
+-
+-            'description'=>'required',
+-
+-            'user_id'=>'required',
+-
+-            'file'=>'required',
+-
+-
+-
+-        ];
+-
+-        $customMessages = [
+-            'required' => __('validation.attributes.required'),
+-        ];
+-
+-        $validator=validator()->make($request->all(),$rule,$customMessages);
+-
+-        if($validator->fails()){
+-
+-//            return responseJson(1,$validator->errors()->first(),$validator->errors());
+-            return response()->json(['status' => 422, 'message' => validationErrorsToString($validator->errors())],422);
+-
+-        }
+-
+-        if($request->file){
+-
+-            $filname=$request->file('file')->getFilename();
+-
+-            $path=$request->file('file')->move(public_path('/'),$filname);
+-
+-            $url=url('/api/v1/ar/createjobs/'.$filname);
+-
+-
+-        }
+-
+-       $jobs=Job::create([
+-
+-           'name'=>$request->name,
+-           'phone'=>$request->phone,
+-           'email'=>$request->email,
+-           'job'=>$request->job,
+-           'description'=>$request->description,
+-           'user_id'=>$request->user_id,
+-          'file'=>$url,
+-
+-       ]);
+-
+-
+-
+-        return response()->json(['status' => 1,'data'=> $jobs ],'200');
+-
+-
+-
+-    }
+-
+ }
+Index: app/User.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nnamespace App;\r\n\r\nuse Illuminate\\Foundation\\Auth\\User as Authenticatable;\r\nuse Illuminate\\Notifications\\Notifiable;\r\nuse Laravel\\Passport\\HasApiTokens;\r\n\r\nuse Illuminate\\Contracts\\Auth\\MustVerifyEmail;\r\nuse Illuminate\\Database\\Eloquent\\SoftDeletes;\r\nuse Laratrust\\Traits\\LaratrustUserTrait;\r\nuse Sqits\\UserStamps\\Concerns\\HasUserStamps;\r\n// use Modules\\\r\n\r\n\r\n\r\nclass User extends Authenticatable\r\n{\r\n    use LaratrustUserTrait;\r\n    use HasApiTokens, Notifiable;\r\n    use HasUserStamps;\r\n    use SoftDeletes;\r\n\r\n    /**\r\n     * The attributes that are mass assignable.\r\n     *\r\n     * @var array\r\n     */\r\n    protected $fillable = [\r\n        'name', 'email','phone','password', 'image','type','status','verification_code','address','city_id','code'\r\n    ];\r\n\r\n    protected $appends = ['image_path'];\r\n\r\n    /**\r\n     * The attributes that should be hidden for arrays.\r\n     *\r\n     * @var array\r\n     */\r\n    protected $hidden = [\r\n        'password', 'remember_token','verification_code' ,'phone_verified_at'\r\n    ];\r\n    /**\r\n     * The attributes that should be cast to native types.\r\n     *\r\n     * @var array\r\n     */\r\n    protected $casts = [\r\n        'email_verified_at' => 'datetime','email_verified_at' => 'phone_verified_at',\r\n    ];\r\n\r\n    public function getImagePathAttribute()\r\n    {\r\n        return asset('public/'.User_image_path . $this->image);\r\n\r\n    }//end of get image path\r\n    public function roles()\r\n    {\r\n        return $this->belongsToMany(Role::class, 'role_user');\r\n\r\n    }//end of roles\r\n    \r\n    public function userMetas()\r\n    {\r\n        return $this->belongsToMany(UserMetas::class, 'user_id');\r\n\r\n    }//end of userMetas\r\n\r\n}//end of model\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- app/User.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ app/User.php	(date 1640630281449)
+@@ -27,7 +27,7 @@
+      * @var array
+      */
+     protected $fillable = [
+-        'name', 'email','phone','password', 'image','type','status','verification_code','address','city_id','code'
++        'name', 'email','phone','password', 'image','type','status','latitude','address','longitude','platform'
+     ];
+ 
+     protected $appends = ['image_path'];
+@@ -38,7 +38,7 @@
+      * @var array
+      */
+     protected $hidden = [
+-        'password', 'remember_token','verification_code' ,'phone_verified_at'
++        'password'
+     ];
+     /**
+      * The attributes that should be cast to native types.
+@@ -59,11 +59,8 @@
+         return $this->belongsToMany(Role::class, 'role_user');
+ 
+     }//end of roles
+-    
+-    public function userMetas()
+-    {
+-        return $this->belongsToMany(UserMetas::class, 'user_id');
++
+ 
+-    }//end of userMetas
+ 
++
+ }//end of model
+Index: routes/web.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\n/*\r\n|--------------------------------------------------------------------------\r\n| Web Routes\r\n|--------------------------------------------------------------------------\r\n|\r\n| Here is where you can register web routes for your application. These\r\n| routes are loaded by the RouteServiceProvider within a group which\r\n| contains the \"web\" middleware group. Now create something great!\r\n|\r\n*/\r\n\r\nRoute::get('/', function () {\r\n    return redirect()->route('dashboard.welcome');\r\n    //return Redirect::to('public/ar/dashboard');\r\n});\r\n\r\nAuth::routes(['register' => false]);\r\n\r\nRoute::get('/home', 'HomeController@index')->name('home');\r\n\r\nRoute::group(['prefix' => LaravelLocalization::setLocale(), 'middleware' => ['localeSessionRedirect', 'localizationRedirect', 'localeViewPath']],\r\n    function () {\r\n        Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(function () {\r\n            //user routes\r\n            Route::resource('catogery', 'CatogeryController')->except(['show']);\r\n\r\n\r\n        });\r\n    });\r\n\r\n;
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- routes/web.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ routes/web.php	(date 1640630281437)
+@@ -16,7 +16,7 @@
+     //return Redirect::to('public/ar/dashboard');
+ });
+ 
+-Auth::routes(['register' => false]);
++Auth::routes(['register' => true]);
+ 
+ Route::get('/home', 'HomeController@index')->name('home');
+ 
+@@ -24,10 +24,9 @@
+     function () {
+         Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(function () {
+             //user routes
+-            Route::resource('catogery', 'CatogeryController')->except(['show']);
+ 
+ 
+         });
+     });
+ 
+-;
+\ No newline at end of file
++;
+Index: database/migrations/2020_01_01_000000_create_users_table.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nuse Illuminate\\Database\\Migrations\\Migration;\r\nuse Illuminate\\Database\\Schema\\Blueprint;\r\nuse Illuminate\\Support\\Facades\\Schema;\r\n\r\nclass CreateUsersTable extends Migration\r\n{\r\n    /**\r\n     * Run the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function up()\r\n    {\r\n        Schema::create('users', function (Blueprint $table) {          \r\n            $table->id();\r\n            $table->string('name')->nullable();\r\n            $table->string('email')->unique()->nullable();\r\n            $table->string('phone')->unique();\r\n            $table->string('address')->nullable();\r\n            $table->integer('city_id')->nullable();\r\n            $table->string('code')->nullable();\r\n\r\n            $table->enum('type', ['SuperAdmin', 'Admin','User']);\r\n            $table->string('image')->default('default.png');\r\n            $table->unsignedInteger('verification_code')->nullable();\r\n            $table->timestamp('phone_verified_at')->nullable();\r\n            $table->timestamp('email_verified_at')->nullable();\r\n            $table->string('password')->nullable();\r\n            $table->tinyInteger('status')->default(0);\r\n            $table->rememberToken();\r\n            $table->timestamps();\r\n            $table->softDeletes();\r\n            $table->userstamps();\r\n            $table->softUserstamps();\r\n        });\r\n    }\r\n\r\n    /**\r\n     * Reverse the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function down()\r\n    {\r\n        Schema::dropIfExists('users');\r\n    }\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- database/migrations/2020_01_01_000000_create_users_table.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ database/migrations/2020_01_01_000000_create_users_table.php	(date 1640629609055)
+@@ -13,27 +13,30 @@
+      */
+     public function up()
+     {
+-        Schema::create('users', function (Blueprint $table) {          
++        Schema::create('users', function (Blueprint $table) {
+             $table->id();
+             $table->string('name')->nullable();
+-            $table->string('email')->unique()->nullable();
+-            $table->string('phone')->unique();
++            $table->string('email')->nullable();
++            $table->string('phone')->nullable();
+             $table->string('address')->nullable();
+-            $table->integer('city_id')->nullable();
+-            $table->string('code')->nullable();
+-
+-            $table->enum('type', ['SuperAdmin', 'Admin','User']);
++            $table->string('latitude')->nullable();
++            $table->string('longitude')->nullable();
++            $table->enum('type', ['SuperAdmin', 'Admin','User'])->nullable();
++            $table->enum('typeReg', ['email', 'facebook'])->nullable();
+             $table->string('image')->default('default.png');
+-            $table->unsignedInteger('verification_code')->nullable();
+-            $table->timestamp('phone_verified_at')->nullable();
+-            $table->timestamp('email_verified_at')->nullable();
++            $table->string('email_verified_at')->nullable();
+             $table->string('password')->nullable();
+             $table->tinyInteger('status')->default(0);
+-            $table->rememberToken();
++            $table->string('_token')->nullable();
++            $table->string('onesignal_id')->nullable();
++            $table->string('platform')->nullable();
++            $table->string('version_no')->nullable();
+             $table->timestamps();
+             $table->softDeletes();
+             $table->userstamps();
+             $table->softUserstamps();
++
++
+         });
+     }
+ 
+Index: routes/dashboard/web.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nRoute::group(['prefix' => LaravelLocalization::setLocale(), 'middleware' => ['localeSessionRedirect', 'localizationRedirect', 'localeViewPath']],\r\n    function () {\r\n\r\n        Route::prefix('dashboard')->name('dashboard.')->middleware(['auth'])->group(function () {\r\n\r\n            Route::get('/', 'WelcomeController@index')->name('welcome');\r\n\r\n            //category routes\r\n           Route::resource('categories', 'CategoryController')->except(['show']);\r\n\r\n            Route::resource('jobs', 'JobController')->except(['show']);\r\n           //cases\r\n            Route::resource('cases', 'CaseController')->except(['show']);\r\n            //typecases\r\n            Route::resource('typecases', 'TypecaseController')->except(['show']);\r\n\r\n            //tag routes\r\n            Route::resource('tags', 'TagController')->except(['show']);\r\n\r\n            //sliders\r\n            Route::resource('sliders', 'SliderController')->except(['show']);\r\n\r\n            //user routes\r\n            Route::resource('users', 'UserController')->except(['show']);\r\n\r\n            Route::post('users/block/{id}', 'UserController@block')->name('users.block');\r\n\r\n            Route::resource('roles', 'RoleController')->except(['show']);\r\n\r\n    });//end of dashboard routes\r\n});\r\n\r\n    // Route::any('{path}', function(){\r\n    //     return response()->json([['status'=>404 , 'message'=>'Requested Route Not Found']]);\r\n    // })->where('path','.*');\r\n\r\n\r\n\r\n\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- routes/dashboard/web.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ routes/dashboard/web.php	(date 1640632956393)
+@@ -7,34 +7,10 @@
+ 
+             Route::get('/', 'WelcomeController@index')->name('welcome');
+ 
+-            //category routes
+-           Route::resource('categories', 'CategoryController')->except(['show']);
+-
+-            Route::resource('jobs', 'JobController')->except(['show']);
+-           //cases
+-            Route::resource('cases', 'CaseController')->except(['show']);
+-            //typecases
+-            Route::resource('typecases', 'TypecaseController')->except(['show']);
+-
+-            //tag routes
+-            Route::resource('tags', 'TagController')->except(['show']);
+-
+-            //sliders
+-            Route::resource('sliders', 'SliderController')->except(['show']);
+-
+-            //user routes
+-            Route::resource('users', 'UserController')->except(['show']);
+-
+-            Route::post('users/block/{id}', 'UserController@block')->name('users.block');
+-
+-            Route::resource('roles', 'RoleController')->except(['show']);
+ 
+     });//end of dashboard routes
+ });
+ 
+-    // Route::any('{path}', function(){
+-    //     return response()->json([['status'=>404 , 'message'=>'Requested Route Not Found']]);
+-    // })->where('path','.*');
+ 
+ 
+ 
+Index: routes/api/v1/api.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nuse Illuminate\\Http\\Request;\r\nuse Illuminate\\Support\\Facades\\Route;\r\n\r\n/*\r\n|--------------------------------------------------------------------------\r\n| API Routes\r\n|--------------------------------------------------------------------------\r\n|\r\n| Here is where you can register API routes for your application. These\r\n| routes are loaded by the RouteServiceProvider within a group which\r\n| is assigned the \"api\" middleware group. Enjoy building your API!\r\n|\r\n*/\r\n\r\nRoute::group(['prefix' => '{locale}'], function() {\r\n    Route::post('/testing' , 'api\\v1\\AuthController@testing');\r\n    Route::middleware(['auth:api'])->post('/notify' , 'api\\v1\\NotificationController@sendNotify');\r\n\r\n});\r\n\r\n\r\n\r\nRoute::group(['prefix' => '{locale}'], function() {\r\n//\r\nRoute::post('job_create','api\\v1\\JobController@createjobs')->middleware('auth:api');\r\n\r\n//users by asmaa\r\n\r\n\r\n\r\n    Route::post('registers','api\\v1\\AuthController@register');\r\n\r\n    Route::get('sliders','api\\v1\\SliderController@slider');\r\n\r\n    Route::post('login','api\\v1\\AuthController@login');\r\n\r\n    Route::post('resetpassword','api\\v1\\AuthController@resetpassword');\r\n\r\n    Route::post('changepassword','api\\v1\\AuthController@changepassword');\r\n\r\n    Route::post('updateprofile','api\\v1\\AuthController@updateprofile')->middleware(['auth:api']);\r\n\r\n    Route::get('logout','api\\v1\\AuthController@logout')->middleware(['auth:api']);\r\n\r\n    Route::get('showprofile','api\\v1\\AuthController@showprofile')->middleware(['auth:api']);\r\n\r\n    Route::get('listofcases','api\\v1\\LawercaseController@listofcases')->middleware(['auth:api']);\r\n\r\n    Route::get('detailscases','api\\v1\\LawercaseController@detailscases');\r\n\r\n    Route::get('mediacenter_news','api\\v1\\MediacenterController@mediacenter_news');\r\n\r\n    Route::get('mediacenter_article','api\\v1\\MediacenterController@mediacenter_article');\r\n\r\n    Route::get('mediacenter_video','api\\v1\\MediacenterController@mediacenter_video');\r\n\r\n    Route::get('details_mediacenter','api\\v1\\MediacenterController@details_mediacenter');\r\n\r\n    Route::post('contact_us','api\\v1\\ContactController@contact_us')->middleware(['auth:api']);\r\n\r\n    Route::get('showcontact_us','api\\v1\\ContactController@showcontact_us')->middleware(['auth:api']);\r\n\r\n\r\n\r\n\r\n\r\n\r\n\r\n    //users\r\n//    Route::prefix('/user')->group( function(){\r\n////        Route::post('/login' , 'api\\v1\\AuthController@login');\r\n//        Route::post('/logout' , 'api\\v1\\AuthController@logout');\r\n//        Route::post('/reset_password' , 'api\\v1\\AuthController@reset_password');\r\n//        Route::post('/verify_reset_code' , 'api\\v1\\AuthController@verify_reset_code');\r\n//        // Route::post('create', 'AuthController@create');\r\n//        // Route::get('find/{token}', 'AuthController@find');\r\n//        Route::middleware(['auth:api'])->post('/change_user_phone' , 'api\\v1\\AuthController@change_user_phone');\r\n//        Route::middleware(['auth:api'])->post('/verify_change_user_phone' , 'api\\v1\\AuthController@verify_change_user_phone');\r\n//\r\n//        Route::post('/register' , 'api\\v1\\RegisterController@registerPhone');\r\n//        Route::post('/register-data' , 'api\\v1\\RegisterController@register_data');\r\n//        Route::post('/resend_code' , 'api\\v1\\RegisterController@registerPhone');\r\n//        Route::post('/verify_phone' , 'api\\v1\\RegisterController@verify_phone');\r\n//        Route::middleware(['auth:api'])->get('/details' , 'api\\v1\\AuthController@details');\r\n//\r\n//    });\r\n});\r\n\r\n\r\n// Route::any('{path}', function(){\r\n//     return response()->json([['status'=>404 , 'message'=>'Requested Route Not Found']]);\r\n// })->where('path','.*');\r\n\r\n// Route::fallback(function(){\r\n//    return response()->json([['status'=>404 , 'message'=>'Requested Route Not Found']]);\r\n// });\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- routes/api/v1/api.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ routes/api/v1/api.php	(date 1640632956718)
+@@ -24,15 +24,12 @@
+ 
+ Route::group(['prefix' => '{locale}'], function() {
+ //
+-Route::post('job_create','api\v1\JobController@createjobs')->middleware('auth:api');
+ 
+ //users by asmaa
+ 
+ 
+ 
+-    Route::post('registers','api\v1\AuthController@register');
+-
+-    Route::get('sliders','api\v1\SliderController@slider');
++    Route::post('register','api\v1\AuthController@register');
+ 
+     Route::post('login','api\v1\AuthController@login');
+ 
+@@ -46,53 +43,9 @@
+ 
+     Route::get('showprofile','api\v1\AuthController@showprofile')->middleware(['auth:api']);
+ 
+-    Route::get('listofcases','api\v1\LawercaseController@listofcases')->middleware(['auth:api']);
+-
+-    Route::get('detailscases','api\v1\LawercaseController@detailscases');
+-
+-    Route::get('mediacenter_news','api\v1\MediacenterController@mediacenter_news');
+-
+-    Route::get('mediacenter_article','api\v1\MediacenterController@mediacenter_article');
+-
+-    Route::get('mediacenter_video','api\v1\MediacenterController@mediacenter_video');
+-
+-    Route::get('details_mediacenter','api\v1\MediacenterController@details_mediacenter');
+-
+-    Route::post('contact_us','api\v1\ContactController@contact_us')->middleware(['auth:api']);
+-
+-    Route::get('showcontact_us','api\v1\ContactController@showcontact_us')->middleware(['auth:api']);
+-
+-
+-
+ 
+ 
+-
+-
+-    //users
+-//    Route::prefix('/user')->group( function(){
+-////        Route::post('/login' , 'api\v1\AuthController@login');
+-//        Route::post('/logout' , 'api\v1\AuthController@logout');
+-//        Route::post('/reset_password' , 'api\v1\AuthController@reset_password');
+-//        Route::post('/verify_reset_code' , 'api\v1\AuthController@verify_reset_code');
+-//        // Route::post('create', 'AuthController@create');
+-//        // Route::get('find/{token}', 'AuthController@find');
+-//        Route::middleware(['auth:api'])->post('/change_user_phone' , 'api\v1\AuthController@change_user_phone');
+-//        Route::middleware(['auth:api'])->post('/verify_change_user_phone' , 'api\v1\AuthController@verify_change_user_phone');
+-//
+-//        Route::post('/register' , 'api\v1\RegisterController@registerPhone');
+-//        Route::post('/register-data' , 'api\v1\RegisterController@register_data');
+-//        Route::post('/resend_code' , 'api\v1\RegisterController@registerPhone');
+-//        Route::post('/verify_phone' , 'api\v1\RegisterController@verify_phone');
+-//        Route::middleware(['auth:api'])->get('/details' , 'api\v1\AuthController@details');
+-//
+-//    });
+ });
+ 
+ 
+-// Route::any('{path}', function(){
+-//     return response()->json([['status'=>404 , 'message'=>'Requested Route Not Found']]);
+-// })->where('path','.*');
+ 
+-// Route::fallback(function(){
+-//    return response()->json([['status'=>404 , 'message'=>'Requested Route Not Found']]);
+-// });
+Index: resources/views/auth/login.blade.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- resources/views/auth/login.blade.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ resources/views/auth/login.blade.php	(date 1640630002064)
+@@ -1,0 +1,57 @@
++
++<div class="container">
++    <div class="row justify-content-center">
++        <div class="col-md-8">
++            <div class="card">
++                <div class="card-header">{{ __('login') }}</div>
++
++                <div class="card-body">
++                    <form method="POST" action="{{ route('login') }}">
++                        @csrf
++
++
++
++                        <div class="form-group row">
++                            <label for="email" class="col-md-4 col-form-label text-md-right">{{ __('E-Mail Address') }}</label>
++
++                            <div class="col-md-6">
++                                <input id="email" type="email" class="form-control{{ $errors->has('email') ? ' is-invalid' : '' }}" name="email" value="{{ old('email') }}" required>
++
++                                @if ($errors->has('email'))
++                                    <span class="invalid-feedback" role="alert">
++                                        <strong>{{ $errors->first('email') }}</strong>
++                                    </span>
++                                @endif
++                            </div>
++                        </div>
++
++
++                        <div class="form-group row">
++                            <label for="password" class="col-md-4 col-form-label text-md-right">{{ __('Password') }}</label>
++
++                            <div class="col-md-6">
++                                <input id="password" type="password" class="form-control{{ $errors->has('password') ? ' is-invalid' : '' }}" name="password" required>
++
++                                @if ($errors->has('password'))
++                                    <span class="invalid-feedback" role="alert">
++                                        <strong>{{ $errors->first('password') }}</strong>
++                                    </span>
++                                @endif
++                            </div>
++                        </div>
++
++
++                        <div class="form-group row mb-0">
++                            <div class="col-md-6 offset-md-4">
++                                <button type="submit" class="btn btn-primary">
++                                    {{ __('login') }}
++                                </button>
++                            </div>
++                        </div>
++                    </form>
++                </div>
++            </div>
++        </div>
++    </div>
++</div>
++
+Index: .idea/tqsema-backend.iml
+===================================================================
+--- .idea/tqsema-backend.iml	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ .idea/tqsema-backend.iml	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
+@@ -1,136 +0,0 @@
+-<?xml version="1.0" encoding="UTF-8"?>
+-<module type="WEB_MODULE" version="4">
+-  <component name="NewModuleRootManager">
+-    <content url="file://$MODULE_DIR$">
+-      <sourceFolder url="file://$MODULE_DIR$/Modules" isTestSource="false" packagePrefix="Modules\" />
+-      <sourceFolder url="file://$MODULE_DIR$/app" isTestSource="false" packagePrefix="App\" />
+-      <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" packagePrefix="Tests\" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/asm89/stack-cors" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/astrotomic/laravel-translatable" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/brick/math" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/composer" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/defuse/php-encryption" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/dnoegel/php-xdg-base-dir" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/doctrine/inflector" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/doctrine/instantiator" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/doctrine/lexer" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/dragonmantank/cron-expression" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/egulias/email-validator" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/facade/flare-client-php" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/facade/ignition" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/facade/ignition-contracts" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/fideloper/proxy" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/filp/whoops" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/firebase/php-jwt" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/fruitcake/laravel-cors" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/fzaninotto/faker" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/guzzlehttp/guzzle" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/guzzlehttp/promises" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/guzzlehttp/psr7" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/hamcrest/hamcrest-php" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/intervention/image" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/kkszymanowski/traitor" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/laminas/laminas-diactoros" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/laminas/laminas-zendframework-bridge" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/laravel/framework" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/laravel/passport" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/laravel/tinker" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/laravel/ui" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/lcobucci/jwt" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/league/commonmark" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/league/event" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/league/flysystem" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/league/oauth2-server" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/mcamara/laravel-localization" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/mockery/mockery" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/monolog/monolog" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/myclabs/deep-copy" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/nesbot/carbon" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/nikic/php-parser" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/nunomaduro/collision" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/nwidart/laravel-modules" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/nyholm/psr7" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/opis/closure" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/paragonie/random_compat" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phar-io/manifest" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phar-io/version" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/php-http/message-factory" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpdocumentor/reflection-common" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpdocumentor/reflection-docblock" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpdocumentor/type-resolver" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpoption/phpoption" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpseclib/phpseclib" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpspec/prophecy" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpunit/php-code-coverage" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpunit/php-file-iterator" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpunit/php-text-template" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpunit/php-timer" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpunit/php-token-stream" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/phpunit/phpunit" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psr/container" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psr/event-dispatcher" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psr/http-factory" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psr/http-message" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psr/log" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psr/simple-cache" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/psy/psysh" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/ralouphie/getallheaders" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/ramsey/collection" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/ramsey/uuid" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/santigarcor/laratrust" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/scrivo/highlight.php" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/code-unit-reverse-lookup" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/comparator" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/diff" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/environment" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/exporter" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/global-state" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/object-enumerator" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/object-reflector" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/recursion-context" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/resource-operations" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/type" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sebastian/version" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/spatie/laravel-permission" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/sqits/laravel-userstamps" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/swiftmailer/swiftmailer" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/console" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/css-selector" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/deprecation-contracts" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/error-handler" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/event-dispatcher" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/event-dispatcher-contracts" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/finder" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/http-foundation" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/http-kernel" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/mime" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-ctype" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-iconv" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-intl-grapheme" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-intl-idn" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-intl-normalizer" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-mbstring" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-php70" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-php72" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-php73" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/polyfill-php80" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/process" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/psr-http-message-bridge" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/routing" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/service-contracts" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/string" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/translation" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/translation-contracts" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/symfony/var-dumper" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/theseer/tokenizer" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/tijsverkoyen/css-to-inline-styles" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/twilio/sdk" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/vlucas/phpdotenv" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/voku/portable-ascii" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/webmozart/assert" />
+-      <excludeFolder url="file://$MODULE_DIR$/vendor/yajra/laravel-datatables-oracle" />
+-    </content>
+-    <orderEntry type="inheritedJdk" />
+-    <orderEntry type="sourceFolder" forTests="false" />
+-  </component>
+-</module>
+\ No newline at end of file
+Index: .idea/.gitignore
+===================================================================
+--- .idea/.gitignore	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ .idea/.gitignore	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
+@@ -1,3 +0,0 @@
+-
+-# Default ignored files
+-/workspace.xml
+\ No newline at end of file
+Index: .idea/dictionaries/may.xml
+===================================================================
+--- .idea/dictionaries/may.xml	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ .idea/dictionaries/may.xml	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
+@@ -1,7 +0,0 @@
+-<component name="ProjectDictionaryState">
+-  <dictionary name="may">
+-    <words>
+-      <w>valied</w>
+-    </words>
+-  </dictionary>
+-</component>
+\ No newline at end of file
+Index: .env.example
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>APP_NAME=Laravel\r\nAPP_ENV=local\r\nAPP_KEY=base64:6EWCBCvVm1TJhjMUPpaN77no9mocuXcZdj8GH/Waqck=\r\nAPP_DEBUG=true\r\nAPP_URL=http://localhost/AHM\r\n\r\nLOG_CHANNEL=stack\r\n\r\nDB_CONNECTION=mysql\r\nDB_HOST=127.0.0.1\r\nDB_PORT=3306\r\nDB_DATABASE=lawers\r\nDB_USERNAME=root\r\nDB_PASSWORD=\r\n\r\nBROADCAST_DRIVER=log\r\nCACHE_DRIVER=file\r\nQUEUE_CONNECTION=sync\r\nSESSION_DRIVER=file\r\nSESSION_LIFETIME=120\r\n\r\nREDIS_HOST=127.0.0.1\r\nREDIS_PASSWORD=null\r\nREDIS_PORT=6379\r\n\r\nMAIL_MAILER=smtp\r\nMAIL_HOST=smtp.mailtrap.io\r\nMAIL_PORT=2525\r\nMAIL_USERNAME=null\r\nMAIL_PASSWORD=null\r\nMAIL_ENCRYPTION=null\r\nMAIL_FROM_ADDRESS=null\r\nMAIL_FROM_NAME=\"${APP_NAME}\"\r\n\r\nAWS_ACCESS_KEY_ID=\r\nAWS_SECRET_ACCESS_KEY=\r\nAWS_DEFAULT_REGION=us-east-1\r\nAWS_BUCKET=\r\n\r\nPUSHER_APP_ID=\r\nPUSHER_APP_KEY=\r\nPUSHER_APP_SECRET=\r\nPUSHER_APP_CLUSTER=mt1\r\n\r\nMIX_PUSHER_APP_KEY=\"${PUSHER_APP_KEY}\"\r\nMIX_PUSHER_APP_CLUSTER=\"${PUSHER_APP_CLUSTER}\"
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- .env.example	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ .env.example	(date 1640628875417)
+@@ -9,7 +9,7 @@
+ DB_CONNECTION=mysql
+ DB_HOST=127.0.0.1
+ DB_PORT=3306
+-DB_DATABASE=lawers
++DB_DATABASE=nearsouq
+ DB_USERNAME=root
+ DB_PASSWORD=
+ 
+@@ -43,4 +43,4 @@
+ PUSHER_APP_CLUSTER=mt1
+ 
+ MIX_PUSHER_APP_KEY="${PUSHER_APP_KEY}"
+-MIX_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+\ No newline at end of file
++MIX_PUSHER_APP_CLUSTER="${PUSHER_APP_CLUSTER}"
+Index: database/factories/UserFactory.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\n/** @var \\Illuminate\\Database\\Eloquent\\Factory $factory */\r\n\r\nuse App\\User;\r\nuse Faker\\Generator as Faker;\r\nuse Illuminate\\Support\\Str;\r\n\r\n/*\r\n|--------------------------------------------------------------------------\r\n| Model Factories\r\n|--------------------------------------------------------------------------\r\n|\r\n| This directory should contain each of the model factory definitions for\r\n| your application. Factories provide a convenient way to generate new\r\n| model instances for testing / seeding your application's database.\r\n|\r\n*/\r\n\r\n$factory->define(User::class, function (Faker $faker) {\r\n    return [\r\n        'name' => $faker->name,\r\n        'email' => $faker->unique()->safeEmail,\r\n        'email_verified_at' => now(),\r\n        'password' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password\r\n        'remember_token' => Str::random(10),\r\n    ];\r\n});\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- database/factories/UserFactory.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ database/factories/UserFactory.php	(date 1640629540025)
+@@ -17,12 +17,3 @@
+ |
+ */
+ 
+-$factory->define(User::class, function (Faker $faker) {
+-    return [
+-        'name' => $faker->name,
+-        'email' => $faker->unique()->safeEmail,
+-        'email_verified_at' => now(),
+-        'password' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
+-        'remember_token' => Str::random(10),
+-    ];
+-});
+Index: database/migrations/2020_07_28_074044_create_sliders_table.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nuse Illuminate\\Database\\Migrations\\Migration;\r\nuse Illuminate\\Database\\Schema\\Blueprint;\r\nuse Illuminate\\Support\\Facades\\Schema;\r\n\r\nclass CreateSlidersTable extends Migration\r\n{\r\n    /**\r\n     * Run the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function up()\r\n    {\r\n        Schema::create('sliders', function (Blueprint $table) {\r\n            $table->id();\r\n            $table->string('image');\r\n            $table->timestamps();\r\n        });\r\n    }\r\n\r\n    /**\r\n     * Reverse the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function down()\r\n    {\r\n        Schema::dropIfExists('sliders');\r\n    }\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- database/migrations/2020_07_28_074044_create_sliders_table.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ database/migrations/2020_07_28_074044_create_sliders_table.php	(date 1640628786416)
+@@ -15,6 +15,10 @@
+     {
+         Schema::create('sliders', function (Blueprint $table) {
+             $table->id();
++            $table->string('name_ar')->nullable();
++            $table->string('name_en')->nullable();
++            $table->string('description_ar')->nullable();
++            $table->string('description_en')->nullable();
+             $table->string('image');
+             $table->timestamps();
+         });
+Index: database/migrations/2020_01_01_145852_create_categories_table.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nuse Illuminate\\Support\\Facades\\Schema;\r\nuse Illuminate\\Database\\Schema\\Blueprint;\r\nuse Illuminate\\Database\\Migrations\\Migration;\r\n\r\nclass CreateCategoriesTable extends Migration\r\n{\r\n    /**\r\n     * Run the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function up()\r\n    {\r\n        Schema::create('categories', function (Blueprint $table) {\r\n            $table->id();\r\n\r\n            $table->string('status');\r\n            $table->timestamps();\r\n            $table->softDeletes();\r\n            $table->userstamps();\r\n            $table->softUserstamps();\r\n\r\n\r\n        });\r\n    }\r\n\r\n    /**\r\n     * Reverse the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function down()\r\n    {\r\n        Schema::dropIfExists('categories');\r\n    }\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- database/migrations/2020_01_01_145852_create_categories_table.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ database/migrations/2020_01_01_145852_create_categories_table.php	(date 1640628786726)
+@@ -17,12 +17,17 @@
+             $table->id();
+ 
+             $table->string('status');
++            $table->string('name_ar')->nullable();
++            $table->string('name_en')->nullable();
++            $table->string('description_ar')->nullable();
++            $table->string('description_en')->nullable();
+             $table->timestamps();
+             $table->softDeletes();
+             $table->userstamps();
+             $table->softUserstamps();
+ 
+ 
++
+         });
+     }
+ 
+Index: .idea/modules.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"ProjectModuleManager\">\r\n    <modules>\r\n      <module fileurl=\"file://$PROJECT_DIR$/.idea/tqsema-backend.iml\" filepath=\"$PROJECT_DIR$/.idea/tqsema-backend.iml\" />\r\n    </modules>\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- .idea/modules.xml	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ .idea/modules.xml	(date 1640627984034)
+@@ -2,7 +2,7 @@
+ <project version="4">
+   <component name="ProjectModuleManager">
+     <modules>
+-      <module fileurl="file://$PROJECT_DIR$/.idea/tqsema-backend.iml" filepath="$PROJECT_DIR$/.idea/tqsema-backend.iml" />
++      <module fileurl="file://$PROJECT_DIR$/.idea/asmaa.iml" filepath="$PROJECT_DIR$/.idea/asmaa.iml" />
+     </modules>
+   </component>
+ </project>
+\ No newline at end of file
+Index: .idea/php.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"PhpIncludePathManager\">\r\n    <include_path>\r\n      <path value=\"$PROJECT_DIR$/vendor/yajra/laravel-datatables-oracle\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/nwidart/laravel-modules\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/facade/flare-client-php\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/facade/ignition-contracts\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/facade/ignition\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/vlucas/phpdotenv\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/voku/portable-ascii\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/santigarcor/laratrust\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/astrotomic/laravel-translatable\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpseclib/phpseclib\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sqits/laravel-userstamps\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/opis/closure\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/webmozart/assert\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpoption/phpoption\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/ramsey/collection\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/ramsey/uuid\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/brick/math\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/paragonie/random_compat\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psr/http-message\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psr/http-factory\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/league/event\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psr/simple-cache\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/asm89/stack-cors\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/league/flysystem\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psr/log\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psr/event-dispatcher\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/league/oauth2-server\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psr/container\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/defuse/php-encryption\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/var-dumper\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/nyholm/psr7\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/league/commonmark\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/nikic/php-parser\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpunit/phpunit\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/fruitcake/laravel-cors\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/filp/whoops\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/nesbot/carbon\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/psy/psysh\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/scrivo/highlight.php\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/doctrine/lexer\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/doctrine/instantiator\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/fideloper/proxy\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/doctrine/inflector\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/laravel/tinker\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/laravel/passport\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/lcobucci/jwt\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/laravel/ui\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/laravel/framework\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/egulias/email-validator\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/guzzlehttp/guzzle\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/nunomaduro/collision\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/guzzlehttp/psr7\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/guzzlehttp/promises\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/myclabs/deep-copy\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/composer\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/php-http/message-factory\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpdocumentor/reflection-common\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpdocumentor/reflection-docblock\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpdocumentor/type-resolver\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/hamcrest/hamcrest-php\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/swiftmailer/swiftmailer\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/kkszymanowski/traitor\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/dnoegel/php-xdg-base-dir\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/spatie/laravel-permission\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/monolog/monolog\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/firebase/php-jwt\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpspec/prophecy\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/mcamara/laravel-localization\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/psr-http-message-bridge\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-intl-normalizer\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/css-selector\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-iconv\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/translation-contracts\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-php72\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/http-kernel\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-php73\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/deprecation-contracts\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/theseer/tokenizer\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/process\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-intl-idn\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/error-handler\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/string\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpunit/php-code-coverage\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-intl-grapheme\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/routing\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/exporter\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpunit/php-text-template\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/mime\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-ctype\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpunit/php-file-iterator\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/service-contracts\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/finder\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpunit/php-timer\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-mbstring\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phar-io/manifest\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/translation\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phar-io/version\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/phpunit/php-token-stream\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/event-dispatcher-contracts\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/dragonmantank/cron-expression\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/event-dispatcher\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/http-foundation\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/console\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-php80\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/code-unit-reverse-lookup\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/twilio/sdk\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/object-enumerator\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/comparator\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/environment\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/object-reflector\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/fzaninotto/faker\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/global-state\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/resource-operations\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/diff\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/type\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/recursion-context\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/sebastian/version\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/tijsverkoyen/css-to-inline-styles\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/intervention/image\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/ralouphie/getallheaders\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/mockery/mockery\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/laminas/laminas-zendframework-bridge\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/laminas/laminas-diactoros\" />\r\n      <path value=\"$PROJECT_DIR$/vendor/symfony/polyfill-php70\" />\r\n    </include_path>\r\n  </component>\r\n  <component name=\"PhpProjectSharedConfiguration\" php_language_level=\"7.2\" />\r\n  <component name=\"PhpUnit\">\r\n    <phpunit_settings>\r\n      <PhpUnitSettings load_method=\"CUSTOM_LOADER\" configuration_file_path=\"$PROJECT_DIR$/phpunit.xml\" custom_loader_path=\"$PROJECT_DIR$/vendor/autoload.php\" use_configuration_file=\"true\" />\r\n    </phpunit_settings>\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- .idea/php.xml	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ .idea/php.xml	(date 1640627983781)
+@@ -2,136 +2,136 @@
+ <project version="4">
+   <component name="PhpIncludePathManager">
+     <include_path>
+-      <path value="$PROJECT_DIR$/vendor/yajra/laravel-datatables-oracle" />
+-      <path value="$PROJECT_DIR$/vendor/nwidart/laravel-modules" />
++      <path value="$PROJECT_DIR$/vendor/composer" />
++      <path value="$PROJECT_DIR$/vendor/hamcrest/hamcrest-php" />
++      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php80" />
++      <path value="$PROJECT_DIR$/vendor/symfony/error-handler" />
++      <path value="$PROJECT_DIR$/vendor/myclabs/deep-copy" />
++      <path value="$PROJECT_DIR$/vendor/fzaninotto/faker" />
++      <path value="$PROJECT_DIR$/vendor/swiftmailer/swiftmailer" />
++      <path value="$PROJECT_DIR$/vendor/phpunit/php-code-coverage" />
++      <path value="$PROJECT_DIR$/vendor/phpunit/phpunit" />
++      <path value="$PROJECT_DIR$/vendor/mockery/mockery" />
++      <path value="$PROJECT_DIR$/vendor/phpunit/php-timer" />
++      <path value="$PROJECT_DIR$/vendor/phpunit/php-file-iterator" />
++      <path value="$PROJECT_DIR$/vendor/phpunit/php-token-stream" />
++      <path value="$PROJECT_DIR$/vendor/phpunit/php-text-template" />
++      <path value="$PROJECT_DIR$/vendor/laminas/laminas-diactoros" />
++      <path value="$PROJECT_DIR$/vendor/laminas/laminas-zendframework-bridge" />
++      <path value="$PROJECT_DIR$/vendor/firebase/php-jwt" />
++      <path value="$PROJECT_DIR$/vendor/phar-io/version" />
++      <path value="$PROJECT_DIR$/vendor/phar-io/manifest" />
++      <path value="$PROJECT_DIR$/vendor/webmozart/assert" />
++      <path value="$PROJECT_DIR$/vendor/astrotomic/laravel-translatable" />
++      <path value="$PROJECT_DIR$/vendor/santigarcor/laratrust" />
+       <path value="$PROJECT_DIR$/vendor/facade/flare-client-php" />
+-      <path value="$PROJECT_DIR$/vendor/facade/ignition-contracts" />
++      <path value="$PROJECT_DIR$/vendor/ramsey/uuid" />
++      <path value="$PROJECT_DIR$/vendor/ramsey/collection" />
++      <path value="$PROJECT_DIR$/vendor/lcobucci/jwt" />
++      <path value="$PROJECT_DIR$/vendor/egulias/email-validator" />
++      <path value="$PROJECT_DIR$/vendor/twilio/sdk" />
+       <path value="$PROJECT_DIR$/vendor/facade/ignition" />
++      <path value="$PROJECT_DIR$/vendor/facade/ignition-contracts" />
++      <path value="$PROJECT_DIR$/vendor/nyholm/psr7" />
++      <path value="$PROJECT_DIR$/vendor/mcamara/laravel-localization" />
++      <path value="$PROJECT_DIR$/vendor/intervention/image" />
++      <path value="$PROJECT_DIR$/vendor/dnoegel/php-xdg-base-dir" />
++      <path value="$PROJECT_DIR$/vendor/defuse/php-encryption" />
++      <path value="$PROJECT_DIR$/vendor/nunomaduro/collision" />
++      <path value="$PROJECT_DIR$/vendor/doctrine/instantiator" />
++      <path value="$PROJECT_DIR$/vendor/doctrine/lexer" />
++      <path value="$PROJECT_DIR$/vendor/doctrine/inflector" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/object-enumerator" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/environment" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/diff" />
++      <path value="$PROJECT_DIR$/vendor/theseer/tokenizer" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/exporter" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/recursion-context" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/global-state" />
++      <path value="$PROJECT_DIR$/vendor/phpspec/prophecy" />
+       <path value="$PROJECT_DIR$/vendor/vlucas/phpdotenv" />
+-      <path value="$PROJECT_DIR$/vendor/voku/portable-ascii" />
+-      <path value="$PROJECT_DIR$/vendor/santigarcor/laratrust" />
+-      <path value="$PROJECT_DIR$/vendor/astrotomic/laravel-translatable" />
+-      <path value="$PROJECT_DIR$/vendor/phpseclib/phpseclib" />
+-      <path value="$PROJECT_DIR$/vendor/sqits/laravel-userstamps" />
+-      <path value="$PROJECT_DIR$/vendor/opis/closure" />
+-      <path value="$PROJECT_DIR$/vendor/webmozart/assert" />
+-      <path value="$PROJECT_DIR$/vendor/phpoption/phpoption" />
+-      <path value="$PROJECT_DIR$/vendor/ramsey/collection" />
+-      <path value="$PROJECT_DIR$/vendor/ramsey/uuid" />
+-      <path value="$PROJECT_DIR$/vendor/brick/math" />
+-      <path value="$PROJECT_DIR$/vendor/paragonie/random_compat" />
+-      <path value="$PROJECT_DIR$/vendor/psr/http-message" />
+-      <path value="$PROJECT_DIR$/vendor/psr/http-factory" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/resource-operations" />
+       <path value="$PROJECT_DIR$/vendor/league/event" />
+-      <path value="$PROJECT_DIR$/vendor/psr/simple-cache" />
+-      <path value="$PROJECT_DIR$/vendor/asm89/stack-cors" />
++      <path value="$PROJECT_DIR$/vendor/monolog/monolog" />
++      <path value="$PROJECT_DIR$/vendor/league/commonmark" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/type" />
+       <path value="$PROJECT_DIR$/vendor/league/flysystem" />
+-      <path value="$PROJECT_DIR$/vendor/psr/log" />
+-      <path value="$PROJECT_DIR$/vendor/psr/event-dispatcher" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/version" />
+       <path value="$PROJECT_DIR$/vendor/league/oauth2-server" />
+-      <path value="$PROJECT_DIR$/vendor/psr/container" />
+-      <path value="$PROJECT_DIR$/vendor/defuse/php-encryption" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/var-dumper" />
+-      <path value="$PROJECT_DIR$/vendor/nyholm/psr7" />
+-      <path value="$PROJECT_DIR$/vendor/league/commonmark" />
+-      <path value="$PROJECT_DIR$/vendor/nikic/php-parser" />
+-      <path value="$PROJECT_DIR$/vendor/phpunit/phpunit" />
+-      <path value="$PROJECT_DIR$/vendor/fruitcake/laravel-cors" />
+-      <path value="$PROJECT_DIR$/vendor/filp/whoops" />
+-      <path value="$PROJECT_DIR$/vendor/nesbot/carbon" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/code-unit-reverse-lookup" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/comparator" />
++      <path value="$PROJECT_DIR$/vendor/sebastian/object-reflector" />
++      <path value="$PROJECT_DIR$/vendor/yajra/laravel-datatables-oracle" />
+       <path value="$PROJECT_DIR$/vendor/psy/psysh" />
+       <path value="$PROJECT_DIR$/vendor/scrivo/highlight.php" />
+-      <path value="$PROJECT_DIR$/vendor/doctrine/lexer" />
+-      <path value="$PROJECT_DIR$/vendor/doctrine/instantiator" />
+-      <path value="$PROJECT_DIR$/vendor/fideloper/proxy" />
+-      <path value="$PROJECT_DIR$/vendor/doctrine/inflector" />
+-      <path value="$PROJECT_DIR$/vendor/laravel/tinker" />
+-      <path value="$PROJECT_DIR$/vendor/laravel/passport" />
+-      <path value="$PROJECT_DIR$/vendor/lcobucci/jwt" />
+-      <path value="$PROJECT_DIR$/vendor/laravel/ui" />
+-      <path value="$PROJECT_DIR$/vendor/laravel/framework" />
+-      <path value="$PROJECT_DIR$/vendor/egulias/email-validator" />
+-      <path value="$PROJECT_DIR$/vendor/guzzlehttp/guzzle" />
+-      <path value="$PROJECT_DIR$/vendor/nunomaduro/collision" />
+-      <path value="$PROJECT_DIR$/vendor/guzzlehttp/psr7" />
+-      <path value="$PROJECT_DIR$/vendor/guzzlehttp/promises" />
+-      <path value="$PROJECT_DIR$/vendor/myclabs/deep-copy" />
+-      <path value="$PROJECT_DIR$/vendor/composer" />
+-      <path value="$PROJECT_DIR$/vendor/php-http/message-factory" />
+-      <path value="$PROJECT_DIR$/vendor/phpdocumentor/reflection-common" />
++      <path value="$PROJECT_DIR$/vendor/ralouphie/getallheaders" />
+       <path value="$PROJECT_DIR$/vendor/phpdocumentor/reflection-docblock" />
++      <path value="$PROJECT_DIR$/vendor/phpdocumentor/reflection-common" />
+       <path value="$PROJECT_DIR$/vendor/phpdocumentor/type-resolver" />
+-      <path value="$PROJECT_DIR$/vendor/hamcrest/hamcrest-php" />
+-      <path value="$PROJECT_DIR$/vendor/swiftmailer/swiftmailer" />
+-      <path value="$PROJECT_DIR$/vendor/kkszymanowski/traitor" />
+-      <path value="$PROJECT_DIR$/vendor/dnoegel/php-xdg-base-dir" />
++      <path value="$PROJECT_DIR$/vendor/laravel/framework" />
++      <path value="$PROJECT_DIR$/vendor/sqits/laravel-userstamps" />
+       <path value="$PROJECT_DIR$/vendor/spatie/laravel-permission" />
+-      <path value="$PROJECT_DIR$/vendor/monolog/monolog" />
+-      <path value="$PROJECT_DIR$/vendor/firebase/php-jwt" />
+-      <path value="$PROJECT_DIR$/vendor/phpspec/prophecy" />
+-      <path value="$PROJECT_DIR$/vendor/mcamara/laravel-localization" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/psr-http-message-bridge" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-normalizer" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/css-selector" />
++      <path value="$PROJECT_DIR$/vendor/nikic/php-parser" />
++      <path value="$PROJECT_DIR$/vendor/phpseclib/phpseclib" />
++      <path value="$PROJECT_DIR$/vendor/voku/portable-ascii" />
++      <path value="$PROJECT_DIR$/vendor/laravel/tinker" />
++      <path value="$PROJECT_DIR$/vendor/kkszymanowski/traitor" />
++      <path value="$PROJECT_DIR$/vendor/laravel/ui" />
++      <path value="$PROJECT_DIR$/vendor/laravel/passport" />
++      <path value="$PROJECT_DIR$/vendor/phpoption/phpoption" />
++      <path value="$PROJECT_DIR$/vendor/dragonmantank/cron-expression" />
++      <path value="$PROJECT_DIR$/vendor/opis/closure" />
++      <path value="$PROJECT_DIR$/vendor/nwidart/laravel-modules" />
++      <path value="$PROJECT_DIR$/vendor/tijsverkoyen/css-to-inline-styles" />
++      <path value="$PROJECT_DIR$/vendor/guzzlehttp/psr7" />
++      <path value="$PROJECT_DIR$/vendor/guzzlehttp/guzzle" />
++      <path value="$PROJECT_DIR$/vendor/paragonie/random_compat" />
++      <path value="$PROJECT_DIR$/vendor/brick/math" />
+       <path value="$PROJECT_DIR$/vendor/symfony/polyfill-iconv" />
++      <path value="$PROJECT_DIR$/vendor/fideloper/proxy" />
++      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-grapheme" />
++      <path value="$PROJECT_DIR$/vendor/symfony/console" />
+       <path value="$PROJECT_DIR$/vendor/symfony/translation-contracts" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php72" />
+       <path value="$PROJECT_DIR$/vendor/symfony/http-kernel" />
++      <path value="$PROJECT_DIR$/vendor/nesbot/carbon" />
+       <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php73" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/deprecation-contracts" />
+-      <path value="$PROJECT_DIR$/vendor/theseer/tokenizer" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/process" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-idn" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/error-handler" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/string" />
+-      <path value="$PROJECT_DIR$/vendor/phpunit/php-code-coverage" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-grapheme" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/routing" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/exporter" />
+-      <path value="$PROJECT_DIR$/vendor/phpunit/php-text-template" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/mime" />
++      <path value="$PROJECT_DIR$/vendor/symfony/event-dispatcher-contracts" />
++      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php70" />
++      <path value="$PROJECT_DIR$/vendor/fruitcake/laravel-cors" />
++      <path value="$PROJECT_DIR$/vendor/asm89/stack-cors" />
++      <path value="$PROJECT_DIR$/vendor/guzzlehttp/promises" />
++      <path value="$PROJECT_DIR$/vendor/psr/simple-cache" />
++      <path value="$PROJECT_DIR$/vendor/psr/http-message" />
++      <path value="$PROJECT_DIR$/vendor/psr/http-factory" />
++      <path value="$PROJECT_DIR$/vendor/psr/log" />
++      <path value="$PROJECT_DIR$/vendor/psr/container" />
++      <path value="$PROJECT_DIR$/vendor/symfony/var-dumper" />
++      <path value="$PROJECT_DIR$/vendor/psr/event-dispatcher" />
++      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-normalizer" />
+       <path value="$PROJECT_DIR$/vendor/symfony/polyfill-ctype" />
+-      <path value="$PROJECT_DIR$/vendor/phpunit/php-file-iterator" />
+       <path value="$PROJECT_DIR$/vendor/symfony/service-contracts" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/finder" />
+-      <path value="$PROJECT_DIR$/vendor/phpunit/php-timer" />
++      <path value="$PROJECT_DIR$/vendor/symfony/psr-http-message-bridge" />
+       <path value="$PROJECT_DIR$/vendor/symfony/polyfill-mbstring" />
+-      <path value="$PROJECT_DIR$/vendor/phar-io/manifest" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/translation" />
+-      <path value="$PROJECT_DIR$/vendor/phar-io/version" />
+-      <path value="$PROJECT_DIR$/vendor/phpunit/php-token-stream" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/event-dispatcher-contracts" />
+-      <path value="$PROJECT_DIR$/vendor/dragonmantank/cron-expression" />
+       <path value="$PROJECT_DIR$/vendor/symfony/event-dispatcher" />
++      <path value="$PROJECT_DIR$/vendor/symfony/css-selector" />
+       <path value="$PROJECT_DIR$/vendor/symfony/http-foundation" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/console" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php80" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/code-unit-reverse-lookup" />
+-      <path value="$PROJECT_DIR$/vendor/twilio/sdk" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/object-enumerator" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/comparator" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/environment" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/object-reflector" />
+-      <path value="$PROJECT_DIR$/vendor/fzaninotto/faker" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/global-state" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/resource-operations" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/diff" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/type" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/recursion-context" />
+-      <path value="$PROJECT_DIR$/vendor/sebastian/version" />
+-      <path value="$PROJECT_DIR$/vendor/tijsverkoyen/css-to-inline-styles" />
+-      <path value="$PROJECT_DIR$/vendor/intervention/image" />
+-      <path value="$PROJECT_DIR$/vendor/ralouphie/getallheaders" />
+-      <path value="$PROJECT_DIR$/vendor/mockery/mockery" />
+-      <path value="$PROJECT_DIR$/vendor/laminas/laminas-zendframework-bridge" />
+-      <path value="$PROJECT_DIR$/vendor/laminas/laminas-diactoros" />
+-      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php70" />
++      <path value="$PROJECT_DIR$/vendor/symfony/routing" />
++      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-php72" />
++      <path value="$PROJECT_DIR$/vendor/symfony/process" />
++      <path value="$PROJECT_DIR$/vendor/symfony/deprecation-contracts" />
++      <path value="$PROJECT_DIR$/vendor/symfony/polyfill-intl-idn" />
++      <path value="$PROJECT_DIR$/vendor/symfony/finder" />
++      <path value="$PROJECT_DIR$/vendor/php-http/message-factory" />
++      <path value="$PROJECT_DIR$/vendor/symfony/string" />
++      <path value="$PROJECT_DIR$/vendor/filp/whoops" />
++      <path value="$PROJECT_DIR$/vendor/symfony/mime" />
++      <path value="$PROJECT_DIR$/vendor/symfony/translation" />
+     </include_path>
+   </component>
+   <component name="PhpProjectSharedConfiguration" php_language_level="7.2" />
+   <component name="PhpUnit">
+     <phpunit_settings>
+-      <PhpUnitSettings load_method="CUSTOM_LOADER" configuration_file_path="$PROJECT_DIR$/phpunit.xml" custom_loader_path="$PROJECT_DIR$/vendor/autoload.php" use_configuration_file="true" />
++      <PhpUnitSettings configuration_file_path="$PROJECT_DIR$/phpunit.xml" custom_loader_path="$PROJECT_DIR$/vendor/autoload.php" use_configuration_file="true" />
+     </phpunit_settings>
+   </component>
+ </project>
+\ No newline at end of file
+Index: database/migrations/2020_01_01_000001_create_tags_table.php
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?php\r\n\r\nuse Illuminate\\Database\\Migrations\\Migration;\r\nuse Illuminate\\Database\\Schema\\Blueprint;\r\nuse Illuminate\\Support\\Facades\\Schema;\r\n\r\nclass CreateTagsTable extends Migration\r\n{\r\n    /**\r\n     * Run the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function up()\r\n    {\r\n        Schema::create('tags', function (Blueprint $table) {\r\n            $table->id();\r\n            $table->timestamps();\r\n            $table->softDeletes();\r\n            $table->userstamps();\r\n            $table->softUserstamps();\r\n        });\r\n\r\n        Schema::create('tag_translations', function (Blueprint $table) {\r\n            $table->id();\r\n            $table->unsignedBigInteger('tag_id');\r\n            $table->string('name');\r\n            $table->string('locale')->index();\r\n            $table->unique(['tag_id', 'locale']);\r\n            $table->foreign('tag_id')->references('id')\r\n                    ->on('tags')->onDelete('cascade');\r\n        });\r\n    }\r\n\r\n    /**\r\n     * Reverse the migrations.\r\n     *\r\n     * @return void\r\n     */\r\n    public function down()\r\n    {\r\n        Schema::dropIfExists('tag_translations');\r\n        Schema::dropIfExists('tags');\r\n    }\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+--- database/migrations/2020_01_01_000001_create_tags_table.php	(revision b856d29ea3a3ec075adc44450bb3772694b18699)
++++ database/migrations/2020_01_01_000001_create_tags_table.php	(date 1640628786736)
+@@ -15,21 +15,15 @@
+     {
+         Schema::create('tags', function (Blueprint $table) {
+             $table->id();
++            $table->string('name_ar')->nullable();
++            $table->string('name_en')->nullable();
+             $table->timestamps();
+             $table->softDeletes();
+             $table->userstamps();
+             $table->softUserstamps();
+         });
+ 
+-        Schema::create('tag_translations', function (Blueprint $table) {
+-            $table->id();
+-            $table->unsignedBigInteger('tag_id');
+-            $table->string('name');
+-            $table->string('locale')->index();
+-            $table->unique(['tag_id', 'locale']);
+-            $table->foreign('tag_id')->references('id')
+-                    ->on('tags')->onDelete('cascade');
+-        });
++
+     }
+ 
+     /**
+@@ -39,7 +33,7 @@
+      */
+     public function down()
+     {
+-        Schema::dropIfExists('tag_translations');
++
+         Schema::dropIfExists('tags');
+     }
+ }
+diff --git app/Http/Middleware/Authenticate.php app/Http/Middleware/Authenticate.php
